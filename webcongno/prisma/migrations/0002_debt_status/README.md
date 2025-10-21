@@ -1,0 +1,1 @@
+- Added columns `is_paid`, `paid_at`, and `payment_note` to keep track of debt repayment status for each entry in `expense_debtors`.

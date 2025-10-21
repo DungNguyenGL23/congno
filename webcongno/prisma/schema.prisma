@@ -1,0 +1,67 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Profile {
+  id          String   @id @db.Uuid
+  fullName    String?  @map("full_name")
+  email       String?  @unique
+  bankCode    String?  @map("bank_code")
+  bankAccount String?  @map("bank_account")
+  bankOwner   String?  @map("bank_owner")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdExpenses Expense[]       @relation("profilesExpenses")
+  debts           ExpenseDebtor[] @relation("profilesDebts")
+
+  @@map("profiles")
+}
+
+model Expense {
+  id          String    @id @default(uuid()) @db.Uuid
+  createdById String    @map("created_by") @db.Uuid
+  title       String
+  amount      Decimal   @db.Decimal(16, 2)
+  note        String?
+  paidAt      DateTime? @map("paid_at") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy Profile         @relation("profilesExpenses", fields: [createdById], references: [id])
+  debtors   ExpenseDebtor[]
+
+  @@index([createdById], map: "expenses_created_by_idx")
+  @@map("expenses")
+}
+
+model ExpenseDebtor {
+  id          String    @id @default(uuid()) @db.Uuid
+  expenseId   String    @map("expense_id") @db.Uuid
+  debtorId    String?   @map("debtor_id") @db.Uuid
+  debtorEmail String    @map("debtor_email")
+  debtorName  String?   @map("debtor_name")
+  owedAmount  Decimal?  @map("owed_amount") @db.Decimal(16, 2)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  isPaid      Boolean   @default(false) @map("is_paid")
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
+  paymentNote String?   @map("payment_note")
+
+  expense Expense  @relation(fields: [expenseId], references: [id])
+  debtor  Profile? @relation("profilesDebts", fields: [debtorId], references: [id])
+
+  @@index([expenseId], map: "expense_debtors_expense_id_idx")
+  @@index([debtorId], map: "expense_debtors_debtor_id_idx")
+  @@map("expense_debtors")
+}
