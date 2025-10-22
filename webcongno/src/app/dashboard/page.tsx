@@ -52,6 +52,131 @@ function formatCurrency(value: number | null | undefined) {
   return numeric.toLocaleString("vi-VN");
 }
 
+type Granularity = "day" | "month" | "year";
+
+const dayFormatter = new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+const monthFormatter = new Intl.DateTimeFormat("vi-VN", {
+  month: "short",
+  year: "numeric",
+});
+
+const yearFormatter = new Intl.DateTimeFormat("vi-VN", { year: "numeric" });
+
+function decimalToNumber(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return parseFloat(value) || 0;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "object" && "toNumber" in (value as Record<string, unknown>)) {
+    try {
+      return (value as { toNumber: () => number }).toNumber();
+    } catch {
+      return Number((value as { toString: () => string }).toString());
+    }
+  }
+  return Number(value) || 0;
+}
+
+function truncateDate(date: Date, granularity: Granularity): Date {
+  if (granularity === "day") {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  }
+  if (granularity === "month") {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+  return new Date(date.getFullYear(), 0, 1);
+}
+
+function formatLabel(date: Date, granularity: Granularity): string {
+  if (granularity === "day") {
+    return dayFormatter.format(date);
+  }
+  if (granularity === "month") {
+    return monthFormatter.format(date);
+  }
+  return yearFormatter.format(date);
+}
+
+function aggregateExpenseStats(
+  rows: Array<{ createdAt: Date; amount: unknown }>,
+  granularity: Granularity,
+  limit: number
+) {
+  const map = new Map<number, { label: string; total: number }>();
+
+  for (const row of rows) {
+    if (!row.createdAt) continue;
+    const truncated = truncateDate(row.createdAt, granularity);
+    const key = truncated.getTime();
+    const amount = decimalToNumber(row.amount);
+
+    if (!Number.isFinite(amount) || amount === 0) continue;
+
+    const entry = map.get(key) ?? {
+      label: formatLabel(truncated, granularity),
+      total: 0,
+    };
+
+    entry.total += amount;
+    map.set(key, entry);
+  }
+
+  return Array.from(map.entries())
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, limit)
+    .map(([, value]) => value);
+}
+
+type DebtAggregation = {
+  label: string;
+  total: number;
+  paid: number;
+  outstanding: number;
+};
+
+function aggregateDebtStats(
+  rows: Array<{ createdAt: Date; owedAmount: unknown; isPaid: boolean }>,
+  granularity: Granularity,
+  limit: number
+): DebtAggregation[] {
+  const map = new Map<number, { label: string; total: number; paid: number; outstanding: number }>();
+
+  for (const row of rows) {
+    if (!row.createdAt) continue;
+    const truncated = truncateDate(row.createdAt, granularity);
+    const key = truncated.getTime();
+    const amount = decimalToNumber(row.owedAmount);
+
+    if (!Number.isFinite(amount) || amount === 0) continue;
+
+    const entry = map.get(key) ?? {
+      label: formatLabel(truncated, granularity),
+      total: 0,
+      paid: 0,
+      outstanding: 0,
+    };
+
+    entry.total += amount;
+    if (row.isPaid) {
+      entry.paid += amount;
+    } else {
+      entry.outstanding += amount;
+    }
+
+    map.set(key, entry);
+  }
+
+  return Array.from(map.entries())
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, limit)
+    .map(([, value]) => value);
+}
+
 export default async function DashboardPage() {
   const supabase = await createSupabaseServerClient();
 
@@ -141,6 +266,11 @@ export default async function DashboardPage() {
   ) {
     redirect("/onboarding/bank");
   }
+
+  const expenseMonthlyStats = aggregateExpenseStats(expensesData, "month", 6);
+  const expenseYearlyStats = aggregateExpenseStats(expensesData, "year", 3);
+  const debtMonthlyStats = aggregateDebtStats(debtsData, "month", 6);
+  const debtYearlyStats = aggregateDebtStats(debtsData, "year", 3);
 
   const expenses: Expense[] = expensesData.map((expense) => ({
     id: expense.id,
@@ -259,6 +389,130 @@ export default async function DashboardPage() {
         </div>
 
         <ExpenseForm members={teamMembers} />
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold">Thống kê chi tiêu & nợ</h2>
+        </div>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-2">
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                Chi tiêu theo tháng
+              </p>
+              {expenseMonthlyStats.length === 0 ? (
+                <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-300">
+                  Chưa có dữ liệu chi tiêu để tổng hợp.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {expenseMonthlyStats.map((stat) => (
+                    <li
+                      key={`expense-month-${stat.label}`}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      <span>{stat.label}</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatCurrency(stat.total)}đ
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                Chi tiêu theo năm
+              </p>
+              {expenseYearlyStats.length === 0 ? (
+                <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-300">
+                  Chưa có dữ liệu chi tiêu theo năm.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {expenseYearlyStats.map((stat) => (
+                    <li
+                      key={`expense-year-${stat.label}`}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      <span>{stat.label}</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatCurrency(stat.total)}đ
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                Khoản nợ theo tháng
+              </p>
+              {debtMonthlyStats.length === 0 ? (
+                <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-300">
+                  Bạn chưa có khoản nợ nào trong khoảng thời gian này.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {debtMonthlyStats.map((stat) => (
+                    <li
+                      key={`debt-month-${stat.label}`}
+                      className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{stat.label}</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatCurrency(stat.total)}đ
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                        <span>Đã thanh toán: {formatCurrency(stat.paid)}đ</span>
+                        <span>Còn lại: {formatCurrency(stat.outstanding)}đ</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                Khoản nợ theo năm
+              </p>
+              {debtYearlyStats.length === 0 ? (
+                <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-300">
+                  Bạn chưa có khoản nợ nào để tổng hợp theo năm.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {debtYearlyStats.map((stat) => (
+                    <li
+                      key={`debt-year-${stat.label}`}
+                      className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{stat.label}</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatCurrency(stat.total)}đ
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                        <span>Đã thanh toán: {formatCurrency(stat.paid)}đ</span>
+                        <span>Còn lại: {formatCurrency(stat.outstanding)}đ</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">

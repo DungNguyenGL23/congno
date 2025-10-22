@@ -134,8 +134,7 @@ export function ExpenseForm({ members }: ExpenseFormProps) {
           </fieldset>
         )}
         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          Chọn những người cần hoàn tiền. Khoản tiền sẽ được chia đều cho các
-          thành viên được chọn.
+          Mỗi người được chọn sẽ phải hoàn lại toàn bộ số tiền bạn nhập ở trên.
         </p>
       </div>
 

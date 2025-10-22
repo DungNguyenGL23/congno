@@ -52,13 +52,12 @@ export async function createExpenseAction(
   const amountValue = formData.get("amount")?.toString().trim();
   const paidAt = formData.get("paid_at")?.toString().trim();
   const note = formData.get("note")?.toString().trim();
-  const debtorEntries = formData.getAll("debtors") ?? [];
-  const debtorIds = debtorEntries
+  const debtorIds = formData
+    .getAll("debtors")
     .map((entry) => entry?.toString().trim())
-    .filter((value): value is string => Boolean(value));
-  const uniqueDebtorIds = Array.from(new Set(debtorIds)).filter(
-    (id) => id !== user.id
-  );
+    .filter((value): value is string => Boolean(value) && value !== user.id);
+
+  const uniqueDebtorIds = Array.from(new Set(debtorIds));
 
   if (!title || !amountValue) {
     return { status: "error", message: "Vui lòng nhập tên chi tiêu và số tiền." };
@@ -116,10 +115,6 @@ export async function createExpenseAction(
     };
   }
 
-  const shareDecimal = new Prisma.Decimal(amount)
-    .div(debtorProfiles.length)
-    .toDecimalPlaces(2);
-
   try {
     await prisma.expense.create({
       data: {
@@ -140,7 +135,7 @@ export async function createExpenseAction(
               debtorId: profile.id,
               debtorEmail: profile.email,
               debtorName: profile.fullName ?? profile.email,
-              owedAmount: shareDecimal,
+              owedAmount: new Prisma.Decimal(amount).toDecimalPlaces(2),
             };
           }),
         },
