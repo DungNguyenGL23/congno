@@ -18,6 +18,9 @@ type DebtPaymentActionsProps = {
   isPaid: boolean;
   paidAt: string | null;
   paymentNote: string | null;
+  ownerStatus: "pending" | "confirmed" | "disputed";
+  ownerNote: string | null;
+  ownerUpdatedAt: string | null;
 };
 
 type StatusMessage = {
@@ -34,10 +37,13 @@ export function DebtPaymentActions(props: DebtPaymentActionsProps) {
     bankBin,
     bankName,
     bankLogo,
-    memo,
-    isPaid,
-    paidAt,
-    paymentNote,
+  memo,
+  isPaid,
+  paidAt,
+  paymentNote,
+  ownerStatus,
+  ownerNote,
+  ownerUpdatedAt,
   } = props;
 
   const [note, setNote] = useState(paymentNote ?? "");
@@ -79,6 +85,17 @@ export function DebtPaymentActions(props: DebtPaymentActionsProps) {
     ? new Date(paidAt).toLocaleString("vi-VN")
     : null;
 
+  const ownerStatusLabel =
+    ownerStatus === "confirmed"
+      ? "Chủ nợ đã xác nhận thanh toán"
+      : ownerStatus === "disputed"
+      ? "Chủ nợ báo chưa nhận được thanh toán"
+      : "Chờ chủ nợ xác nhận";
+
+  const ownerUpdatedLabel = ownerUpdatedAt
+    ? new Date(ownerUpdatedAt).toLocaleString("vi-VN")
+    : null;
+
   return (
     <div className="space-y-4">
       <DebtPaymentButton
@@ -113,6 +130,27 @@ export function DebtPaymentActions(props: DebtPaymentActionsProps) {
             Đánh dấu lần cuối: {paidAtLabel}
           </p>
         )}
+
+        <div
+          className={`rounded-lg border p-3 text-xs ${
+            ownerStatus === "confirmed"
+              ? "border-emerald-400/40 bg-emerald-50 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200"
+              : ownerStatus === "disputed"
+              ? "border-rose-400/40 bg-rose-50 text-rose-700 dark:border-rose-400/40 dark:bg-rose-950/40 dark:text-rose-200"
+              : "border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+          }`}
+        >
+          <p className="font-medium">{ownerStatusLabel}</p>
+          {ownerUpdatedLabel && <p className="mt-1">Cập nhật: {ownerUpdatedLabel}</p>}
+          {ownerNote && ownerStatus !== "pending" && (
+            <p className="mt-1">Ghi chú: {ownerNote}</p>
+          )}
+          {ownerStatus === "disputed" && !isPaid && (
+            <p className="mt-1">
+              Vui lòng kiểm tra lại và đánh dấu “Đã thanh toán” sau khi chuyển khoản.
+            </p>
+          )}
+        </div>
 
         <label className="block text-xs font-medium text-slate-700 dark:text-slate-200">
           Ghi chú thanh toán (tùy chọn, tối đa {NOTE_MAX_LENGTH} ký tự)

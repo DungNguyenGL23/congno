@@ -14,6 +14,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum OwnerPaymentStatus {
+  pending
+  confirmed
+  disputed
+
+  @@map("ownerpaymentstatus")
+}
+
 model Profile {
   id          String   @id @db.Uuid
   fullName    String?  @map("full_name")
@@ -57,6 +65,9 @@ model ExpenseDebtor {
   isPaid      Boolean   @default(false) @map("is_paid")
   paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
   paymentNote String?   @map("payment_note")
+  ownerStatus OwnerPaymentStatus @default(pending) @map("owner_status")
+  ownerNote   String?   @map("owner_note")
+  ownerUpdatedAt DateTime? @map("owner_updated_at") @db.Timestamptz(6)
 
   expense Expense  @relation(fields: [expenseId], references: [id])
   debtor  Profile? @relation("profilesDebts", fields: [debtorId], references: [id])

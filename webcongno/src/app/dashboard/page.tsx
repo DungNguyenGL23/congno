@@ -5,6 +5,7 @@ import { signOut } from "./actions";
 import { prisma } from "@/lib/prisma";
 import { DebtPaymentActions } from "@/components/dashboard/debt-payment-actions";
 import { getBankDirectory, findBankByCode } from "@/lib/bank-directory";
+import { OwnerDebtActions } from "@/components/dashboard/owner-debt-actions";
 
 type Expense = {
   id: string;
@@ -14,10 +15,17 @@ type Expense = {
   paid_at: string | null;
   created_at: string;
   expense_debtors: Array<{
+    record_id: string;
     debtor_id: string | null;
     debtor_email: string | null;
     debtor_name: string | null;
     owed_amount: number | null;
+    is_paid: boolean;
+    paid_at: string | null;
+    payment_note: string | null;
+    owner_status: "pending" | "confirmed" | "disputed";
+    owner_note: string | null;
+    owner_updated_at: string | null;
   }>;
 };
 
@@ -36,6 +44,9 @@ type DebtForUser = {
   is_paid: boolean;
   paid_at: string | null;
   payment_note: string | null;
+  owner_status: "pending" | "confirmed" | "disputed";
+  owner_note: string | null;
+  owner_updated_at: string | null;
 };
 
 function formatCurrency(value: number | null | undefined) {
@@ -280,10 +291,19 @@ export default async function DashboardPage() {
     paid_at: expense.paidAt ? expense.paidAt.toISOString() : null,
     created_at: expense.createdAt.toISOString(),
     expense_debtors: expense.debtors.map((debtor) => ({
+      record_id: debtor.id,
       debtor_id: debtor.debtorId,
       debtor_email: debtor.debtorEmail,
       debtor_name: debtor.debtorName ?? debtor.debtor?.fullName ?? debtor.debtor?.email ?? null,
       owed_amount: debtor.owedAmount?.toNumber() ?? null,
+      is_paid: debtor.isPaid,
+      paid_at: debtor.paidAt ? debtor.paidAt.toISOString() : null,
+      payment_note: debtor.paymentNote ?? null,
+      owner_status: debtor.ownerStatus,
+      owner_note: debtor.ownerNote ?? null,
+      owner_updated_at: debtor.ownerUpdatedAt
+        ? debtor.ownerUpdatedAt.toISOString()
+        : null,
     })),
   }));
 
@@ -320,12 +340,17 @@ export default async function DashboardPage() {
       owner_bank_account: debt.expense.createdBy?.bankAccount ?? null,
       owner_bank_code: debt.expense.createdBy?.bankCode ?? null,
       owner_bank_name: bankEntry?.shortName ?? bankEntry?.name ?? null,
-      owner_bank_logo: bankEntry?.logo ?? null,
-      memo: memoLabel,
-      is_paid: debt.isPaid,
-      paid_at: debt.paidAt ? debt.paidAt.toISOString() : null,
-      payment_note: debt.paymentNote ?? null,
-    };
+    owner_bank_logo: bankEntry?.logo ?? null,
+    memo: memoLabel,
+    is_paid: debt.isPaid,
+    paid_at: debt.paidAt ? debt.paidAt.toISOString() : null,
+    payment_note: debt.paymentNote ?? null,
+    owner_status: debt.ownerStatus,
+    owner_note: debt.ownerNote ?? null,
+    owner_updated_at: debt.ownerUpdatedAt
+      ? debt.ownerUpdatedAt.toISOString()
+      : null,
+  };
   });
 
   return (
@@ -583,23 +608,70 @@ export default async function DashboardPage() {
                     <h3 className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
                       Danh sách cần hoàn tiền
                     </h3>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                    <ul className="mt-3 space-y-3 text-sm text-slate-600 dark:text-slate-300">
                       {expense.expense_debtors.map((debtor, index) => (
                         <li
                           key={`${expense.id}-${debtor.debtor_email ?? index}`}
-                          className="flex items-center justify-between gap-2"
+                          className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-950"
                         >
-                          <span>
-                            {debtor.debtor_name ?? debtor.debtor_email}
-                            {debtor.debtor_name && debtor.debtor_email
-                              ? ` (${debtor.debtor_email})`
-                              : null}
-                          </span>
-                          {debtor.owed_amount !== null ? (
-                            <span className="font-medium text-slate-900 dark:text-slate-100">
-                              {formatCurrency(debtor.owed_amount)}đ
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="font-medium text-slate-900 dark:text-slate-100">
+                                {debtor.debtor_name ?? debtor.debtor_email}
+                              </p>
+                              {debtor.debtor_name && debtor.debtor_email && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                  {debtor.debtor_email}
+                                </p>
+                              )}
+                            </div>
+                            {debtor.owed_amount !== null && (
+                              <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                                {formatCurrency(debtor.owed_amount)}đ
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.2em]">
+                            <span
+                              className={`rounded-full px-2 py-1 font-semibold ${
+                                debtor.is_paid
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                  : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                              }`}
+                            >
+                              {debtor.is_paid ? "ĐÃ THANH TOÁN" : "CHƯA THANH TOÁN"}
                             </span>
-                          ) : null}
+                            <span
+                              className={`rounded-full px-2 py-1 font-semibold ${
+                                debtor.owner_status === "confirmed"
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                  : debtor.owner_status === "disputed"
+                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200"
+                                  : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                              }`}
+                            >
+                              {debtor.owner_status === "confirmed"
+                                ? "ĐÃ XÁC NHẬN"
+                                : debtor.owner_status === "disputed"
+                                ? "KHIẾU NẠI"
+                                : "CHỜ XÁC NHẬN"}
+                            </span>
+                          </div>
+
+                          {debtor.payment_note && (
+                            <p className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">
+                              Ghi chú người nợ: {debtor.payment_note}
+                            </p>
+                          )}
+
+                          <OwnerDebtActions
+                            debtId={debtor.record_id}
+                            isPaid={debtor.is_paid}
+                            ownerStatus={debtor.owner_status}
+                            ownerNote={debtor.owner_note}
+                            ownerUpdatedAt={debtor.owner_updated_at}
+                          />
                         </li>
                       ))}
                     </ul>
@@ -661,6 +733,21 @@ export default async function DashboardPage() {
                     >
                       {debt.is_paid ? "Đã thanh toán" : "Chưa thanh toán"}
                     </span>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${
+                        debt.owner_status === "confirmed"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200"
+                          : debt.owner_status === "disputed"
+                          ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200"
+                          : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                      }`}
+                    >
+                      {debt.owner_status === "confirmed"
+                        ? "Chủ nợ đã xác nhận"
+                        : debt.owner_status === "disputed"
+                        ? "Chủ nợ khiếu nại"
+                        : "Chờ xác nhận"}
+                    </span>
                   </div>
                 </div>
 
@@ -679,6 +766,9 @@ export default async function DashboardPage() {
                       isPaid={debt.is_paid}
                       paidAt={debt.paid_at}
                       paymentNote={debt.payment_note}
+                      ownerStatus={debt.owner_status}
+                      ownerNote={debt.owner_note}
+                      ownerUpdatedAt={debt.owner_updated_at}
                     />
                   ) : (
                     <p className="rounded-lg border border-amber-400/40 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-400/40 dark:bg-amber-950 dark:text-amber-200">

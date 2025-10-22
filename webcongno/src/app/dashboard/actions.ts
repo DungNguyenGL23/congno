@@ -206,8 +206,103 @@ export async function setDebtPaidStatus(
       isPaid: payload.isPaid,
       paidAt: payload.isPaid ? new Date() : null,
       paymentNote: payload.isPaid ? (limitedNote || null) : null,
+      ownerStatus: "pending",
+      ownerNote: null,
+      ownerUpdatedAt: null,
     },
   });
+
+  revalidatePath("/dashboard");
+}
+
+type OwnerReviewPayload = {
+  status: "confirmed" | "disputed" | "pending";
+  note?: string;
+};
+
+export async function reviewDebtPayment(
+  debtId: string,
+  payload: OwnerReviewPayload
+): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase) {
+    throw new Error(
+      "Supabase chưa được cấu hình. Hãy kiểm tra lại biến môi trường."
+    );
+  }
+
+  const { data: userData, error } = await supabase.auth.getUser();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const user = userData?.user;
+
+  if (!user) {
+    throw new Error("Bạn cần đăng nhập để xác nhận khoản nợ.");
+  }
+
+  const debt = await prisma.expenseDebtor.findUnique({
+    where: { id: debtId },
+    include: {
+      expense: true,
+    },
+  });
+
+  if (!debt) {
+    throw new Error("Khoản nợ không tồn tại hoặc đã bị xóa.");
+  }
+
+  if (debt.expense.createdById !== user.id) {
+    throw new Error("Bạn không có quyền xác nhận khoản nợ này.");
+  }
+
+  const sanitizedNote = payload.note?.toString().trim() ?? "";
+  const limitedNote =
+    sanitizedNote.length > 280
+      ? sanitizedNote.slice(0, 280)
+      : sanitizedNote;
+
+  const status = payload.status;
+
+  if (status === "confirmed") {
+    if (!debt.isPaid) {
+      throw new Error(
+        "Người nợ chưa đánh dấu đã thanh toán, không thể xác nhận."
+      );
+    }
+
+    await prisma.expenseDebtor.update({
+      where: { id: debtId },
+      data: {
+        ownerStatus: "confirmed",
+        ownerNote: limitedNote || null,
+        ownerUpdatedAt: new Date(),
+      },
+    });
+  } else if (status === "disputed") {
+    await prisma.expenseDebtor.update({
+      where: { id: debtId },
+      data: {
+        isPaid: false,
+        paidAt: null,
+        ownerStatus: "disputed",
+        ownerNote: limitedNote || "Chưa nhận được thanh toán",
+        ownerUpdatedAt: new Date(),
+      },
+    });
+  } else {
+    await prisma.expenseDebtor.update({
+      where: { id: debtId },
+      data: {
+        ownerStatus: "pending",
+        ownerNote: null,
+        ownerUpdatedAt: null,
+      },
+    });
+  }
 
   revalidatePath("/dashboard");
 }
